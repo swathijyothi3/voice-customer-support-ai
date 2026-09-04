@@ -7,4 +7,3 @@ wordcloud
 joblib
 streamlit
 SpeechRecognition
-PyAudio
