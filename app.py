@@ -6,6 +6,7 @@ Run with:
     streamlit run app.py
 """
 
+import io
 import joblib
 import speech_recognition as sr
 import streamlit as st
@@ -140,13 +141,14 @@ def predict_category(raw_text: str):
     return predicted_category, confidence, cleaned, top_alternatives
 
 
-def transcribe_from_mic(pause_threshold: float, timeout=6, phrase_time_limit=20) -> str:
+def transcribe_audio_bytes(audio_bytes: bytes, pause_threshold: float) -> str:
+    """Transcribe browser-recorded WAV audio without requiring PyAudio."""
     recognizer = sr.Recognizer()
     recognizer.pause_threshold = pause_threshold
-    with sr.Microphone() as source:
-        recognizer.adjust_for_ambient_noise(source, duration=0.6)
-        status_placeholder.info("Listening — describe your issue now.")
-        audio = recognizer.listen(source, timeout=timeout, phrase_time_limit=phrase_time_limit)
+
+    with sr.AudioFile(io.BytesIO(audio_bytes)) as source:
+        audio = recognizer.record(source)
+
     return recognizer.recognize_google(audio)
 
 
@@ -665,23 +667,29 @@ with tab_route:
 
     with col_input:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
-        st.markdown('<div class="panel-title">💬 Tell us what you need</div><div class="panel-subtitle">Use your voice or type a support request</div>', unsafe_allow_html=True)
+        st.markdown('<div class="panel-title">💬 Tell us what you need</div><div class="panel-subtitle">Record your voice or type a support request</div>', unsafe_allow_html=True)
         tab_mic, tab_text = st.tabs(["🎙️ Speak", "⌨️ Type"])
 
         with tab_mic:
-            st.caption("Click below and describe your issue.")
-            status_placeholder = st.empty()
-            if st.button("Start Recording", use_container_width=True):
+            st.caption("Record your issue using your browser microphone.")
+            audio_value = st.audio_input(
+                "🎙️ Record your request",
+                key="support_audio",
+            )
+
+            if audio_value is not None:
                 try:
-                    recognized_text = transcribe_from_mic(pause_threshold)
-                    status_placeholder.empty()
+                    recognized_text = transcribe_audio_bytes(
+                        audio_value.getvalue(),
+                        pause_threshold,
+                    )
                     result = ("mic", recognized_text)
-                except sr.WaitTimeoutError:
-                    status_placeholder.error("No speech detected in time. Try again.")
                 except sr.UnknownValueError:
-                    status_placeholder.error("Couldn't understand the audio. Speak clearly and try again.")
-                except OSError:
-                    status_placeholder.error("No microphone found. Use the Type tab instead.")
+                    st.error("Couldn't understand the audio. Speak clearly and try again.")
+                except sr.RequestError:
+                    st.error("Speech recognition service is unavailable. Please try again or use the Type tab.")
+                except Exception as exc:
+                    st.error(f"Audio processing failed: {exc}")
 
         with tab_text:
             typed_text = st.text_area(
@@ -780,7 +788,7 @@ with tab_how:
     st.markdown("""
 **Pipeline:** `Speech → Text → Preprocessing → TF-IDF Vectorization → Logistic Regression → Category + Confidence`
 
-1. **Speech-to-text** — your voice is transcribed via the Google Web Speech API.
+1. **Speech-to-text** — browser-recorded audio is transcribed via the Google Web Speech API.
 2. **Preprocessing** — the transcript is lowercased, stripped of punctuation and digits,
    filtered of stopwords, and lemmatized (`src/preprocessing.py`) — the same function used
    during training, so live speech is cleaned identically to how the model learned.
