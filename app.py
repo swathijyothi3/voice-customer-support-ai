@@ -663,7 +663,7 @@ with tab_route:
     st.write("")
     col_input, col_ticket = st.columns([1, 1], gap="large")
 
-    result = None
+    result = st.session_state.pop("route_result", None)
 
     with col_input:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
@@ -672,9 +672,13 @@ with tab_route:
 
         with tab_mic:
             st.caption("Record your issue using your browser microphone.")
+
+            if "audio_widget_key" not in st.session_state:
+                st.session_state["audio_widget_key"] = 0
+
             audio_value = st.audio_input(
                 "🎙️ Record your request",
-                key="support_audio",
+                key=f"support_audio_{st.session_state['audio_widget_key']}",
             )
 
             if audio_value is not None:
@@ -683,13 +687,33 @@ with tab_route:
                         audio_value.getvalue(),
                         pause_threshold,
                     )
-                    result = ("mic", recognized_text)
+                    st.session_state["voice_transcript"] = recognized_text
                 except sr.UnknownValueError:
                     st.error("Couldn't understand the audio. Speak clearly and try again.")
                 except sr.RequestError:
                     st.error("Speech recognition service is unavailable. Please try again or use the Type tab.")
                 except Exception as exc:
                     st.error(f"Audio processing failed: {exc}")
+
+            voice_transcript = st.session_state.get("voice_transcript", "")
+
+            if voice_transcript:
+                st.markdown(
+                    f'<div class="transcript-box">🎙️ "{voice_transcript}"</div>',
+                    unsafe_allow_html=True,
+                )
+
+                record_again, route_voice = st.columns(2)
+                with record_again:
+                    if st.button("🔄 Record Again", use_container_width=True):
+                        st.session_state["voice_transcript"] = ""
+                        st.session_state["audio_widget_key"] += 1
+                        st.rerun()
+
+                with route_voice:
+                    if st.button("🎯 Route Request", use_container_width=True):
+                        st.session_state["route_result"] = ("mic", voice_transcript)
+                        st.rerun()
 
         with tab_text:
             typed_text = st.text_area(
